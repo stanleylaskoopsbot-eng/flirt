@@ -90,6 +90,8 @@ export default function DailyFlirtPastelMinimal() {
   const [isAgeVerified, setIsAgeVerified] = useState(false);
   const [showAgeVerification, setShowAgeVerification] = useState(false);
   const [fireworks, setFireworks] = useState<Array<{ id: number; left: number; top: number }>>([]);
+  const [showCountdown, setShowCountdown] = useState(false);
+  const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
 
   const shaderBackgrounds = {
     light: 'sunrise',
@@ -159,6 +161,7 @@ export default function DailyFlirtPastelMinimal() {
     }));
     setFireworks(newFireworks);
     setTimeout(() => setFireworks([]), 1500);
+    setShowCountdown(true);
   };
 
   const currentComment = commentsData.find(comment => comment.date === selectedDate) as CommentEntry | undefined;
@@ -171,6 +174,29 @@ export default function DailyFlirtPastelMinimal() {
       setImageLoading(false);
     }
   }, [selectedDate, currentComment]);
+
+  useEffect(() => {
+    if (!showCountdown) return;
+
+    const targetDate = new Date('December 17, 2027 00:00:00').getTime();
+
+    const updateCountdown = () => {
+      const now = Date.now();
+      const distance = Math.max(0, targetDate - now);
+
+      const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+
+      setCountdown({ days, hours, minutes, seconds });
+    };
+
+    updateCountdown();
+    const countdownInterval = setInterval(updateCountdown, 1000);
+
+    return () => clearInterval(countdownInterval);
+  }, [showCountdown]);
 
 
   return (
@@ -306,6 +332,14 @@ export default function DailyFlirtPastelMinimal() {
             className="text-rose-400 cursor-pointer text-lg"
           >💕</button> by <span className="text-rose-400 font-bold">LaskoCreative</span>
         </p>
+        <a
+          href="#secret-countdown"
+          className="sr-only"
+          aria-hidden="true"
+          tabIndex={-1}
+        >
+          Secret countdown link
+        </a>
       </div>
 
       {/* Floating action buttons */}
@@ -371,6 +405,30 @@ export default function DailyFlirtPastelMinimal() {
               🎆
             </span>
           ))}
+        </div>
+      )}
+
+      {showCountdown && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" id="secret-countdown">
+          <div className="bg-white p-8 rounded-3xl shadow-2xl max-w-lg w-full border border-rose-200 text-center space-y-6">
+            <div className="text-5xl">💕</div>
+            <h2 className="text-3xl font-serif text-rose-500">Secret Countdown</h2>
+            <p className="text-rose-600">Counting down to December 17, 2027</p>
+            <div className="grid grid-cols-4 gap-3 text-center">
+              {[{ label: 'Days', value: countdown.days }, { label: 'Hours', value: countdown.hours }, { label: 'Minutes', value: countdown.minutes }, { label: 'Seconds', value: countdown.seconds }].map(({ label, value }) => (
+                <div key={label} className="bg-rose-50 rounded-2xl p-4 border border-rose-200">
+                  <div className="text-2xl font-bold text-rose-500">{value.toString().padStart(2, '0')}</div>
+                  <div className="text-xs uppercase tracking-wide text-rose-400">{label}</div>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowCountdown(false)}
+              className="w-full bg-rose-500 text-white font-semibold py-3 px-6 rounded-2xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300"
+            >
+              Keep it secret
+            </button>
+          </div>
         </div>
       )}
     </div>
