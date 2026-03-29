@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import commentsData from "@/data/flirtyComments_with_risque.json";
-import { ShaderGradientCanvas } from "@paper-design/shaders-react";
+import { MeshGradient, NeuroNoise } from "@paper-design/shaders-react";
 
 interface CommentEntry {
   date: string;
@@ -17,31 +17,23 @@ interface CommentEntry {
   graphicFlirtyComment: string;
 }
 
+interface UnsplashPhoto {
+  id: string;
+  urls: { regular: string; small: string };
+  links: { html: string; download_location: string };
+  user: { name: string; links: { html: string } };
+}
+
 function findClosestDateToToday(): string {
   const today = new Date();
   const currentMonth = today.getMonth();
   const currentDay = today.getDate();
 
-  const monthNames = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const currentDateString = `${monthNames[currentMonth]} ${currentDay}`;
 
   const exactMatch = commentsData.find((comment) => comment.date === currentDateString);
-  if (exactMatch) {
-    return currentDateString;
-  }
+  if (exactMatch) return currentDateString;
 
   let closestDate = commentsData[0]?.date || "";
   let minDifference = Infinity;
@@ -51,11 +43,9 @@ function findClosestDateToToday(): string {
       const [month, day] = comment.date.split(" ");
       const commentMonth = monthNames.indexOf(month);
       const commentDay = parseInt(day);
-
       const difference = Math.abs(
         commentMonth * 30 + commentDay - (currentMonth * 30 + currentDay)
       );
-
       if (difference < minDifference) {
         minDifference = difference;
         closestDate = comment.date;
@@ -66,82 +56,47 @@ function findClosestDateToToday(): string {
   return closestDate;
 }
 
-function formatDateForDisplay(dateString: string): string {
-  const [month, day] = dateString.split(" ");
-  const monthNames = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-  const monthIndex = monthNames.indexOf(month);
-  const fullMonthNames = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-  ];
-  return `${fullMonthNames[monthIndex]} ${day}`;
-}
-
 function dateStringToDate(dateString: string): Date {
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const [month, day] = dateString.split(" ");
-  const monthNames = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
   const monthIndex = monthNames.indexOf(month);
   return new Date(new Date().getFullYear(), monthIndex, parseInt(day));
 }
 
 function dateToDateString(date: Date): string {
-  const monthNames = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-  const month = monthNames[date.getMonth()];
-  const day = date.getDate();
-  return `${month} ${day}`;
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${monthNames[date.getMonth()]} ${date.getDate()}`;
 }
 
-// Get all available dates for the datepicker
 const availableDates = commentsData.map((comment) => dateStringToDate(comment.date));
+
+const UNSPLASH_KEY = process.env.NEXT_PUBLIC_UNSPLASH_ACCESS_KEY;
+
+async function fetchUnsplashPhoto(specialDay: string): Promise<UnsplashPhoto | null> {
+  try {
+    const keywords = specialDay
+      .toLowerCase()
+      .replace(/\b(national|international|world)\b\s*/g, "")
+      .replace(/\bday\b\s*$/, "")
+      .trim();
+    const query = encodeURIComponent(`${keywords} romantic`);
+    const res = await fetch(
+      `https://api.unsplash.com/photos/random?query=${query}&orientation=landscape&client_id=${UNSPLASH_KEY}`
+    );
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function triggerUnsplashDownload(downloadLocation: string) {
+  try {
+    await fetch(`${downloadLocation}&client_id=${UNSPLASH_KEY}`);
+  } catch {
+    // non-critical
+  }
+}
 
 export default function DailyFlirtPastelMinimal() {
   const [mood, setMood] = useState<"light" | "dreamy" | "bold">("light");
@@ -153,60 +108,117 @@ export default function DailyFlirtPastelMinimal() {
   const [imageLoading, setImageLoading] = useState(false);
   const [isAgeVerified, setIsAgeVerified] = useState(false);
   const [showAgeVerification, setShowAgeVerification] = useState(false);
-
   const [showCountdown, setShowCountdown] = useState(false);
   const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+  const [commentVisible, setCommentVisible] = useState(true);
+  const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [photoAttribution, setPhotoAttribution] = useState<{
+    name: string;
+    profileUrl: string;
+    photoUrl: string;
+  } | null>(null);
 
-  const shaderBackgrounds = {
-    light: "sunrise",
-    dreamy: "midnight",
-    bold: "lava",
-  } as const;
+  // Read URL params on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const dateParam = params.get("date");
+    const levelParam = params.get("level");
+
+    if (dateParam) {
+      const decoded = decodeURIComponent(dateParam);
+      const exists = commentsData.find((c) => c.date === decoded);
+      if (exists) setSelectedDate(decoded);
+    }
+    if (
+      levelParam &&
+      ["flirtyComment", "risqueComment", "innocentlyDirtyComment"].includes(levelParam)
+    ) {
+      setFlirtLevel(levelParam as typeof flirtLevel);
+    }
+  }, []);
+
+  // Sync URL when date/level changes
+  useEffect(() => {
+    const params = new URLSearchParams();
+    params.set("date", selectedDate);
+    if (flirtLevel !== "graphicFlirtyComment") {
+      params.set("level", flirtLevel);
+    }
+    window.history.replaceState(null, "", `?${params.toString()}`);
+  }, [selectedDate, flirtLevel]);
+
+
+  const fadeOut = (callback: () => void) => {
+    setCommentVisible(false);
+    setTimeout(() => {
+      callback();
+      setCommentVisible(true);
+    }, 200);
+  };
 
   const handleMoodChange = () => {
     const moods: Array<"light" | "dreamy" | "bold"> = ["light", "dreamy", "bold"];
     const currentIndex = moods.indexOf(mood);
-    const nextIndex = (currentIndex + 1) % moods.length;
-    setMood(moods[nextIndex]);
+    setMood(moods[(currentIndex + 1) % moods.length]);
   };
 
   const handleDateChange = (date: Date | null) => {
     if (date) {
       const dateString = dateToDateString(date);
-      setSelectedDate(dateString);
-      setFlirtLevel("flirtyComment");
+      fadeOut(() => {
+        setSelectedDate(dateString);
+        setFlirtLevel("flirtyComment");
+      });
     }
   };
 
   const handleFlirtLevelChange = (level: typeof flirtLevel) => {
-    setFlirtLevel(level);
+    fadeOut(() => setFlirtLevel(level));
   };
 
   const handleShowRandomComment = () => {
     const randomIndex = Math.floor(Math.random() * commentsData.length);
     const randomComment = commentsData[randomIndex];
     if (randomComment.date) {
-      setSelectedDate(randomComment.date);
+      fadeOut(() => setSelectedDate(randomComment.date));
     }
   };
 
-  const handleChangeImage = async () => {
-    if (currentComment) {
-      setImageLoading(true);
-      try {
-        // Add cache-busting parameter to force image reload
-        const newImageUrl = `${currentComment.risqueImageUrl}?v=${Date.now()}`;
-        setDailyImage(newImageUrl);
-      } catch (error) {
-        console.error("Failed to load new image:", error);
-        // Use fallback image
-        setDailyImage(
-          "https://images.unsplash.com/photo-1518895949257-7621c3c786d7?w=800&h=600&fit=crop"
-        );
-      } finally {
-        setImageLoading(false);
-      }
+  const loadUnsplashImage = async (specialDay: string) => {
+    setImageLoading(true);
+    setPhotoAttribution(null);
+    const photo = await fetchUnsplashPhoto(specialDay);
+    if (photo) {
+      setDailyImage(photo.urls.regular);
+      setPhotoAttribution({
+        name: photo.user.name,
+        profileUrl: photo.user.links.html + "?utm_source=daily_flirt&utm_medium=referral",
+        photoUrl: photo.links.html + "?utm_source=daily_flirt&utm_medium=referral",
+      });
+      triggerUnsplashDownload(photo.links.download_location);
+    } else {
+      setDailyImage("https://picsum.photos/seed/" + encodeURIComponent(specialDay) + "/800/600");
     }
+    setImageLoading(false);
+  };
+
+  const handleRefreshImage = () => {
+    if (currentComment) loadUnsplashImage(currentComment.specialDay);
+  };
+
+  const handleCopy = async () => {
+    if (currentComment) {
+      await navigator.clipboard.writeText(currentComment[flirtLevel]);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleShare = async () => {
+    await navigator.clipboard.writeText(window.location.href);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
   };
 
   const handleIYKYKClick = () => {
@@ -216,7 +228,7 @@ export default function DailyFlirtPastelMinimal() {
   const handleAgeVerification = () => {
     setIsAgeVerified(true);
     setShowAgeVerification(false);
-    setFlirtLevel("graphicFlirtyComment");
+    fadeOut(() => setFlirtLevel("graphicFlirtyComment"));
   };
 
   const handleSecretCountdownClick = () => {
@@ -227,41 +239,63 @@ export default function DailyFlirtPastelMinimal() {
     (comment) => comment.date === selectedDate
   ) as CommentEntry | undefined;
 
-  // Load image when date or flirt level changes
+  // Auto-load image when date changes
   useEffect(() => {
-    if (currentComment && currentComment.risqueImageUrl) {
-      setImageLoading(true);
-      setDailyImage(currentComment.risqueImageUrl);
-      setImageLoading(false);
-    }
-  }, [selectedDate, currentComment]);
+    if (currentComment) loadUnsplashImage(currentComment.specialDay);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
 
   useEffect(() => {
     if (!showCountdown) return;
-
     const targetDate = new Date("December 17, 2027 00:00:00").getTime();
-
     const updateCountdown = () => {
       const now = Date.now();
       const distance = Math.max(0, targetDate - now);
-
-      const days = Math.floor(distance / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-      const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((distance % (1000 * 60)) / 1000);
-
-      setCountdown({ days, hours, minutes, seconds });
+      setCountdown({
+        days: Math.floor(distance / (1000 * 60 * 60 * 24)),
+        hours: Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+        minutes: Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60)),
+        seconds: Math.floor((distance % (1000 * 60)) / 1000),
+      });
     };
-
     updateCountdown();
-    const countdownInterval = setInterval(updateCountdown, 1000);
-
-    return () => clearInterval(countdownInterval);
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
   }, [showCountdown]);
 
   return (
     <div className="relative min-h-screen flex items-center justify-center p-6 transition-colors duration-700">
-      <ShaderGradientCanvas className="absolute inset-0 -z-10" shader={shaderBackgrounds[mood]} />
+      <div className="absolute inset-0 -z-10">
+        {mood === "light" && (
+          <MeshGradient
+            style={{ width: "100%", height: "100%" }}
+            colors={["#fff0f3", "#ffb3c6", "#ff8fab", "#ffc8dd"]}
+            distortion={0.5}
+            swirl={0.2}
+            speed={0.5}
+          />
+        )}
+        {mood === "dreamy" && (
+          <NeuroNoise
+            style={{ width: "100%", height: "100%" }}
+            colorFront="#e8c5ff"
+            colorMid="#9b5de5"
+            colorBack="#1a0030"
+            brightness={0.1}
+            contrast={0.2}
+            speed={0.5}
+          />
+        )}
+        {mood === "bold" && (
+          <MeshGradient
+            style={{ width: "100%", height: "100%" }}
+            colors={["#ff4d6d", "#ff6b35", "#ffd60a", "#e63946"]}
+            distortion={0.9}
+            swirl={0.3}
+            speed={0.8}
+          />
+        )}
+      </div>
 
       <div className="max-w-md w-full bg-white rounded-3xl p-8 shadow-xl border border-rose-100 relative overflow-hidden">
         <div className="absolute top-4 left-4 text-5xl opacity-30 select-none">💕</div>
@@ -276,7 +310,7 @@ export default function DailyFlirtPastelMinimal() {
           and mischievous smile.
         </p>
 
-        {/* Date Selection Section */}
+        {/* Date Selection */}
         <div className="mb-6">
           <label className="block text-rose-400 text-lg mb-2 text-center">✨ Select Your Date ✨</label>
           <div className="relative">
@@ -307,6 +341,7 @@ export default function DailyFlirtPastelMinimal() {
           )}
         </div>
 
+        {/* Flirt Level */}
         <div className="mb-6">
           <p className="text-center text-rose-400 mb-3">Choose Your Flirt Level</p>
           <div className="flex gap-3 justify-center">
@@ -330,16 +365,46 @@ export default function DailyFlirtPastelMinimal() {
           </div>
         </div>
 
+        {/* Comment card with fade transition */}
         {currentComment && (
-          <div className="bg-rose-100 rounded-xl p-4 text-center text-rose-600 font-serif text-xl border border-rose-200 shadow-inner">
-            &ldquo;{currentComment[flirtLevel]}&rdquo;
+          <div
+            className={`transition-opacity duration-200 ${commentVisible ? "opacity-100" : "opacity-0"}`}
+          >
+            <div className="bg-rose-100 rounded-xl p-4 text-center text-rose-600 font-serif text-xl border border-rose-200 shadow-inner">
+              &ldquo;{currentComment[flirtLevel]}&rdquo;
+            </div>
+            <div className="flex gap-2 mt-3 justify-center">
+              <button
+                onClick={handleCopy}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border border-rose-200 text-rose-400 hover:bg-rose-50 transition-all duration-200"
+              >
+                {copied ? "✓ Copied!" : "📋 Copy"}
+              </button>
+              <button
+                onClick={handleShare}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border border-rose-200 text-rose-400 hover:bg-rose-50 transition-all duration-200"
+              >
+                {linkCopied ? "✓ Link copied!" : "🔗 Share"}
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Daily Image Section */}
+        {/* Daily Image */}
         {currentComment && (
-          <div className="mt-6 space-y-4">
-            <h3 className="text-center text-rose-400 text-lg font-semibold">✨ Daily Mood Image ✨</h3>
+          <div
+            className={`mt-6 space-y-4 transition-opacity duration-200 ${commentVisible ? "opacity-100" : "opacity-0"}`}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-rose-400 text-lg font-semibold">✨ Daily Mood Image ✨</h3>
+              <button
+                onClick={handleRefreshImage}
+                className="text-xs text-rose-400 hover:text-rose-500 border border-rose-200 rounded-lg px-2 py-1 hover:bg-rose-50 transition-all"
+                title="Refresh image"
+              >
+                🔄 Refresh
+              </button>
+            </div>
 
             {dailyImage && !imageLoading && (
               <div className="w-full rounded-xl overflow-hidden relative shadow-lg border border-rose-200 bg-white">
@@ -348,7 +413,6 @@ export default function DailyFlirtPastelMinimal() {
                   alt={`Daily image for ${currentComment.specialDay}`}
                   className="w-full h-auto max-h-64 object-cover"
                   onError={(e) => {
-                    console.log("Image failed to load, using fallback");
                     e.currentTarget.src =
                       "https://images.unsplash.com/photo-1518895949257-7621c3c786d7?w=800&h=600&fit=crop&q=80";
                   }}
@@ -357,6 +421,18 @@ export default function DailyFlirtPastelMinimal() {
                   {currentComment.specialDay}
                 </div>
               </div>
+            )}
+            {photoAttribution && !imageLoading && (
+              <p className="text-center text-rose-300 text-xs">
+                Photo by{" "}
+                <a href={photoAttribution.profileUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-rose-400">
+                  {photoAttribution.name}
+                </a>{" "}
+                on{" "}
+                <a href={photoAttribution.photoUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-rose-400">
+                  Unsplash
+                </a>
+              </p>
             )}
 
             {imageLoading && (
@@ -370,7 +446,7 @@ export default function DailyFlirtPastelMinimal() {
               <div className="w-full h-48 rounded-xl bg-rose-50 flex items-center justify-center border border-rose-200">
                 <div className="text-center text-rose-400">
                   <div className="text-3xl mb-2">🖼️</div>
-                  <div className="text-sm">Click the image button to load a mood image</div>
+                  <div className="text-sm">No image available for this date</div>
                 </div>
               </div>
             )}
@@ -416,7 +492,7 @@ export default function DailyFlirtPastelMinimal() {
         </button>
       </div>
 
-      {/* Age verification modal overlay */}
+      {/* Age verification modal */}
       {showAgeVerification && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white p-8 rounded-3xl shadow-2xl max-w-md w-full border border-rose-200 text-center">
@@ -449,7 +525,7 @@ export default function DailyFlirtPastelMinimal() {
         </div>
       )}
 
-      {/* Secret countdown modal (single instance) */}
+      {/* Secret countdown modal */}
       {showCountdown && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50"
