@@ -17,13 +17,6 @@ interface CommentEntry {
   graphicFlirtyComment: string;
 }
 
-interface UnsplashPhoto {
-  id: string;
-  urls: { regular: string; small: string };
-  links: { html: string; download_location: string };
-  user: { name: string; links: { html: string } };
-}
-
 function findClosestDateToToday(): string {
   const today = new Date();
   const currentMonth = today.getMonth();
@@ -70,34 +63,6 @@ function dateToDateString(date: Date): string {
 
 const availableDates = commentsData.map((comment) => dateStringToDate(comment.date));
 
-const UNSPLASH_KEY = process.env.NEXT_PUBLIC_UNSPLASH_ACCESS_KEY;
-
-async function fetchUnsplashPhoto(specialDay: string): Promise<UnsplashPhoto | null> {
-  try {
-    const keywords = specialDay
-      .toLowerCase()
-      .replace(/\b(national|international|world)\b\s*/g, "")
-      .replace(/\bday\b\s*$/, "")
-      .trim();
-    const query = encodeURIComponent(`${keywords} romantic`);
-    const res = await fetch(
-      `https://api.unsplash.com/photos/random?query=${query}&orientation=landscape&client_id=${UNSPLASH_KEY}`
-    );
-    if (!res.ok) return null;
-    return res.json();
-  } catch {
-    return null;
-  }
-}
-
-async function triggerUnsplashDownload(downloadLocation: string) {
-  try {
-    await fetch(`${downloadLocation}&client_id=${UNSPLASH_KEY}`);
-  } catch {
-    // non-critical
-  }
-}
-
 export default function DailyFlirtPastelMinimal() {
   const [mood, setMood] = useState<"light" | "dreamy" | "bold">("light");
   const [selectedDate, setSelectedDate] = useState<string>(() => findClosestDateToToday());
@@ -106,7 +71,6 @@ export default function DailyFlirtPastelMinimal() {
   >("flirtyComment");
   const [dailyImage, setDailyImage] = useState<string>("");
   const [imageLoading, setImageLoading] = useState(false);
-  const [isAgeVerified, setIsAgeVerified] = useState(false);
   const [showAgeVerification, setShowAgeVerification] = useState(false);
   const [showCountdown, setShowCountdown] = useState(false);
   const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
@@ -188,19 +152,29 @@ export default function DailyFlirtPastelMinimal() {
   const loadUnsplashImage = async (specialDay: string) => {
     setImageLoading(true);
     setPhotoAttribution(null);
-    const photo = await fetchUnsplashPhoto(specialDay);
-    if (photo) {
-      setDailyImage(photo.urls.regular);
-      setPhotoAttribution({
-        name: photo.user.name,
-        profileUrl: photo.user.links.html + "?utm_source=daily_flirt&utm_medium=referral",
-        photoUrl: photo.links.html + "?utm_source=daily_flirt&utm_medium=referral",
-      });
-      triggerUnsplashDownload(photo.links.download_location);
-    } else {
+    try {
+      const response = await fetch(
+        `/api/unsplash?specialDay=${encodeURIComponent(specialDay)}`,
+        { cache: "no-store" }
+      );
+      if (!response.ok) {
+        throw new Error("Image request failed");
+      }
+      const data = (await response.json()) as {
+        url: string;
+        attribution: {
+          name: string;
+          profileUrl: string;
+          photoUrl: string;
+        };
+      };
+      setDailyImage(data.url);
+      setPhotoAttribution(data.attribution);
+    } catch {
       setDailyImage("https://picsum.photos/seed/" + encodeURIComponent(specialDay) + "/800/600");
+    } finally {
+      setImageLoading(false);
     }
-    setImageLoading(false);
   };
 
   const handleRefreshImage = () => {
@@ -226,7 +200,6 @@ export default function DailyFlirtPastelMinimal() {
   };
 
   const handleAgeVerification = () => {
-    setIsAgeVerified(true);
     setShowAgeVerification(false);
     fadeOut(() => setFlirtLevel("graphicFlirtyComment"));
   };

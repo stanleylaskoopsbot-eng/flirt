@@ -46,6 +46,16 @@ pnpm dev
 
 4. Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+### Environment Variables
+
+Create a `.env.local` file with:
+
+```bash
+UNSPLASH_ACCESS_KEY=your_unsplash_access_key
+```
+
+This key is now read only on the server through `src/app/api/unsplash/route.ts`. Do not use `NEXT_PUBLIC_UNSPLASH_ACCESS_KEY`.
+
 ## 🛠️ Tech Stack
 
 - **Framework**: Next.js 15 with App Router
@@ -70,8 +80,11 @@ The easiest way to deploy your Daily Flirt app:
 1. Push your code to GitHub, GitLab, or Bitbucket
 2. Go to [vercel.com](https://vercel.com) and sign up
 3. Click "New Project" and import your repository
-4. Vercel will automatically detect it's a Next.js app
-5. Click "Deploy" - that's it!
+4. Add `UNSPLASH_ACCESS_KEY` in Project Settings → Environment Variables
+5. Vercel will automatically detect it's a Next.js app with a server runtime
+6. Click "Deploy" - that's it!
+
+This app is no longer configured as a static export because hiding the Unsplash key requires a server-side route.
 
 ### Other Platforms
 
